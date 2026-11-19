@@ -22,8 +22,9 @@ import assert from 'node:assert/strict'
 import { SshPool } from '../lib/pool.js'
 import { SystemOpenSshPool } from '../lib/openssh.js'
 import { listRemoteDrives } from '../lib/remote-fs.js'
-import { toSftpPath } from '../lib/paths.js'
+import { toSftpPath, connectProbeCommand } from '../lib/paths.js'
 import { startFakeSsh } from './harness/fake-ssh.js'
+import { createHost, machine } from './harness/plugin-host.js'
 
 const baseConfig = (over = {}) => ({
   host: '127.0.0.1',
@@ -306,4 +307,58 @@ test('toSftpPath: a drive ROOT goes out drive-relative (C:/), deeper paths keep 
   assert.equal(toSftpPath('D:\\Code'), '/D:/Code')
   assert.equal(toSftpPath('C:/Users/x'), '/C:/Users/x')
   assert.equal(toSftpPath('/home/user'), '/home/user')
+})
+
+// ---------------------------------------------------------------------------
+// 7. The connect probe must not assume a POSIX shell. `true` is a binary that
+//    does not exist on a Windows DefaultShell of PowerShell — the dial itself
+//    succeeded, yet the probe failed with "true: The term 'true' is not
+//    recognized…". And BARE `echo` is no better: PowerShell aliases it to
+//    Write-Output, which demands an InputObject. `echo <arg>` is the portable
+//    no-op on every shell dsh-remote meets (sh/bash builtin, PowerShell alias).
+// ---------------------------------------------------------------------------
+test('connectProbeCommand: the probe is shell-portable (echo with an argument, never POSIX true or bare echo)', () => {
+  const probe = connectProbeCommand()
+  assert.equal(probe, 'echo dsh-probe')
+  assert.notEqual(probe, 'true')
+  assert.notEqual(probe, 'echo', 'bare echo fails PowerShell Write-Output (missing InputObject)')
+  assert.ok(/^echo\s+\S+/.test(probe), 'the probe must carry an argument for PowerShell')
+})
+
+test('openssh connect: the liveness probe it sends is the portable echo-with-arg, not true', async () => {
+  const pool = new SystemOpenSshPool(baseConfig({ backend: 'openssh', hostKeyMode: 'off' }))
+  const seen = []
+  pool._runSsh = async (args) => { seen.push(args); return { code: 0, stdout: '', stderr: '' } }
+  await pool.connect()
+  assert.ok(seen.length >= 1, 'connect() must probe the target')
+  assert.equal(seen[0][seen[0].length - 1], connectProbeCommand(), 'the probe command must work under a PowerShell DefaultShell')
+})
+
+test('test-connect: a PowerShell-like shell (no true, bare echo needs InputObject) still probes OK', async () => {
+  // A fake server that accepts none-auth and models a Windows PowerShell
+  // DefaultShell: the POSIX `true` binary is missing AND bare `echo` fails
+  // (Write-Output demands an InputObject); only `echo <arg>` succeeds.
+  const srv = await startFakeSsh({
+    users: {},
+    onExec: (cmd) => {
+      if (/^echo\s+\S+/.test(cmd)) return { code: 0, stdout: cmd.replace(/^echo\s+/, '') + '\n', stderr: '' }
+      if (cmd === 'echo') return { code: 1, stdout: '', stderr: 'Write-Output: Cannot process command because of one or more missing mandatory parameters: InputObject.' }
+      if (cmd === 'true') return { code: 1, stdout: '', stderr: "true: The term 'true' is not recognized as a name of a cmdlet" }
+      return null // everything else falls through to the fake's table
+    },
+  })
+  const host = await createHost({
+    machines: [machine({ host: '127.0.0.1', port: srv.port, username: 'root', password: 'pw' })],
+  })
+  try {
+    const list = await host.call('/dsh-remote/machines', { method: 'GET' })
+    const rec = list.json.machines[0]
+    const probe = await host.call('/dsh-remote/test-connect', {
+      body: { id: rec.id, host: '127.0.0.1', port: srv.port, username: 'root', password: '' },
+    })
+    assert.equal(probe.json.ok, true, `probe must survive a PowerShell shell: ${probe.json.error}`)
+  } finally {
+    await host.dispose()
+    await srv.close()
+  }
 })

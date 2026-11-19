@@ -213,6 +213,10 @@ export async function startFakeSsh(opts = {}) {
     }
     if (/^true$/.test(trimmed)) return { stdout: '', code: 0 }
     if (/^false$/.test(trimmed)) return { stdout: '', code: 1 }
+    // A BARE `echo` (no argument) is the shell-portable connect probe: real
+    // shells print a newline and exit 0. The arg-requiring regex below would
+    // miss it and answer "command not found", failing a perfectly good probe.
+    if (/^echo$/.test(trimmed)) return { stdout: '\n', code: 0 }
     // `echo` ANYWHERE in the line: the plugin wraps commands with a `cd … &&`
     // prefix, so an anchored match would answer "(no output)" for a command that
     // really printed. A bare `~` expands to the login directory like a POSIX shell
