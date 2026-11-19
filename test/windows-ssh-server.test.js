@@ -75,6 +75,22 @@ test('none-auth: a server that accepts `none` connects with no password/key/agen
   }
 })
 
+test('native pool loads ssh2 through createRequire (robust CJS interop under any loader)', async () => {
+  // The running DSH host loads the plugin through its own module loader; an ESM
+  // `import ssh2 from 'ssh2'` default can arrive without the CJS named exports
+  // there ("Client is not a constructor"), while the same file imports fine in
+  // plain node/tsx. createRequire reaches the real CJS module regardless, and
+  // must yield the SAME Client class the ESM default exposes (so prototype
+  // patches and instanceof checks stay consistent across the two import forms).
+  const { loadSsh2 } = await import('../lib/pool.js')
+  const ssh2 = loadSsh2()
+  assert.equal(typeof ssh2.Client, 'function', 'ssh2.Client must be a constructor')
+  assert.equal(typeof ssh2.BaseAgent, 'function', 'ssh2.BaseAgent must be available')
+  assert.equal(typeof ssh2.createAgent, 'function', 'ssh2.createAgent must be available')
+  const esmDefault = (await import('ssh2')).default
+  assert.equal(ssh2.Client, esmDefault.Client, 'createRequire and ESM default must share the Client class')
+})
+
 test('none-auth: useAgent without an agent socket still reports the agent problem after the dial', async () => {
   const savedSock = process.env.SSH_AUTH_SOCK
   delete process.env.SSH_AUTH_SOCK
