@@ -2,6 +2,21 @@
 
 All notable changes to **dsh-remote**.
 
+## Unreleased
+### Windows SSH 服务器兼容（none 认证、PowerShell 默认 shell）
+
+针对 Windows OpenSSH/自建 SSH 服务器（默认 shell 为 PowerShell、允许 none 认证）的三组修复，均已对真实 Windows 主机实测（native ssh2 与 openssh 双后端）：
+
+- **none 认证放行**（5d5dc12）：无密码/私钥/agent 时不再预先抛「缺少凭据」，让 ssh2 先尝试 none 认证，服务器接受即可直连；useAgent 但无 SSH_AUTH_SOCK 时改在认证失败后给出明确的 agent 提示。设置页「无凭据」提示文案同步改写（zh/en）。
+- **PowerShell 兼容的命令构造**（5d5dc12）：`if exist` 探测去掉括号分支（PowerShell 会解析括号）；Git Bash 调用统一 `cmd /c "<bash>" -s`（裸 `"path" -s` 不是 PowerShell 语法）。
+- **Git Bash 解析加固**（5d5dc12，pool 与 openssh 双后端）：过滤 `where bash` 返回的 WSL 桩（System32/WindowsApps 的 bash.exe），每个候选用 `uname -s` 验证 mingw/msys/cygwin；新增从 `where git` 推导安装根（覆盖非标准安装目录如 C:\Programs\Git）；全部候选无效时回落 native shell，不再给出空路径的 git-bash。
+- **盘符枚举修复**（5d5dc12）：改用 `Get-PSDrive` 优先、`cmd //c fsutil` 兜底（Git Bash 的 MSYS 路径改写会把 `cmd /c` 变成 `cmd C:/` 导致 fsutil 交互式运行、只「枚举」出提示符里的 C:）；实测列出全部盘符。
+- **SFTP 盘根路径修复**（5d5dc12）：`toSftpPath` 对盘根（如 `C:\`）输出 `C:/` 而非 `/C:/`——后者会被部分服务器清洗成 `C:`（盘上当前目录）而非盘根；深层路径保持 `/D:/…` 不变。
+- **输出上限缺省修复**（5d5dc12）：配置未设 `maxOutputChars` 时硬上限算出 NaN，导致 exec 输出被静默全部丢弃；现缺省视为不限量（两个后端同修）。
+- **跨 shell 连接探针**（255fa35）：连接/探活命令由 POSIX `true` 改为 `echo dsh-probe`——`true` 在 PowerShell 下不存在，裸 `echo` 又因 Write-Output 缺少必填参数而失败；带参数的 echo 在 sh/bash/cmd/PowerShell 均可用。
+- **native 后端 ssh2 加载加固**（c151646）：改用 `createRequire` 加载 ssh2（与 openssh 后端加载 sftp 引擎同一手法），修复宿主内部 ESM 加载器下 CJS 默认导出互操作失败导致的「Client is not a constructor」；加载结果校验 `Client` 为构造函数，失败时给出明确错误。
+- 新增回归测试 `test/windows-ssh-server.test.js`（19 项，覆盖上述全部场景）；fake-ssh 测试桩补齐裸 echo 语义。已验证：1542 tests / 1530 pass / 0 fail（12 项为既有跳过）。
+
 ## 1.2.1 — 2026-11-18
 ### 升级恢复、会话工作区与依赖闭包
 
