@@ -412,6 +412,10 @@ test('#51: detect() reports posix for a host that answers uname, and Windows for
     const cmd = args[args.length - 1]
     if (cmd === 'cmd /c ver') return { code: 0, stdout: 'Microsoft Windows [Version 10.0]\r\n', stderr: '' }
     if (cmd === 'cmd /c where bash') return { code: 0, stdout: 'C:\\Program Files\\Git\\bin\\bash.exe\r\n', stderr: '' }
+    // The resolver verifies candidates: existence probe + `uname -s` must
+    // answer like a real Git Bash, or the candidate is (correctly) rejected.
+    if (cmd === 'cmd /c if exist "C:\\Program Files\\Git\\bin\\bash.exe" echo Y') return { code: 0, stdout: 'Y\r\n', stderr: '' }
+    if (cmd === 'cmd /c "C:\\Program Files\\Git\\bin\\bash.exe" -c "uname -s"') return { code: 0, stdout: 'MINGW64_NT-10.0\r\n', stderr: '' }
     return { code: 0, stdout: '', stderr: '' }
   }
   await winPool.detect()

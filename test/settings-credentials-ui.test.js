@@ -256,8 +256,8 @@ test('a machine with no credential at all says so before the user hits 连接', 
     const pwd = passwordInputs(tree)
     assert.equal(pwd.length, 1)
     assert.doesNotMatch(String(pwd[0].props.placeholder), /•/, 'nothing is saved, so no dots')
-    assert.ok(elements(tree).some((el) => /还没有任何凭据/.test(textOf(el))),
-      'the "no credential yet" warning must be rendered')
+    assert.ok(elements(tree).some((el) => /none 认证/.test(textOf(el))),
+      'the "no credential — tries none-auth first" hint must be rendered')
   } finally { dispose() }
 })
 
